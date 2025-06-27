@@ -74,4 +74,8 @@ public class AgricultureWeatherData implements Serializable {
      @TableField(value = "collect_time")
      @ApiModelProperty(value = "采集时间")
      private LocalDateTime collectTime;
+
+    @TableField(value = "remark")
+    @ApiModelProperty(value = "备注")
+    private String remark;
 }

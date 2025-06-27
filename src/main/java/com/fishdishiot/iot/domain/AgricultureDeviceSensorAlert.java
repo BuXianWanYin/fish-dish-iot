@@ -25,7 +25,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @TableName(value ="agriculture_device_sensor_alert")
 @ApiModel(value = "AgricultureDeviceSensorAlert" , description="传感器预警信息表")
-public class AgricultureDeviceSensorAlert implements Serializable  {
+public class AgricultureDeviceSensorAlert extends BaseEntityPlus implements Serializable  {
 
     private static final long serialVersionUID = 1L;
 
