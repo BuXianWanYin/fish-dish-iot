@@ -1,0 +1,42 @@
+spring:
+  profiles:
+    active: dev  # 默认激活开发环境
+
+# RabbitMQ配置（如需用RabbitMQ再打开）
+rabbitmq:
+  host: ${rabbitmq.host:localhost}
+  port: ${rabbitmq.port:5672}
+  username: ${rabbitmq.username:guest}
+  password: ${rabbitmq.password:guest}
+  template:
+    default-receive-timeout: ${rabbitmq.timeout:5000}
+    retry:
+      enabled: true
+      max-attempts: 3
+    custom-connection-factory:
+      cache-mode: CHANNEL
+      publisher-confirms: true
+
+# MyBatis-Plus全局配置
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*.xml
+  type-aliases-package: com.fishdishiot.iot.domain
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: none
+
+# MQTT、串口等只写占位符（不建议写具体值）
+mqtt:
+  server-uri: ${mqtt.server-uri}
+  client-id: ${mqtt.client-id}
+  username: ${mqtt.username}
+  password: ${mqtt.password}
+  default-topic: ${mqtt.default-topic}
+  completion-timeout: ${mqtt.completion-timeout}
+
+serial:
+  port-name: ${serial.port-name}
+  baud-rate: ${serial.baud-rate}
