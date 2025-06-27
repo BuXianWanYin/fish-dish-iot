@@ -1,0 +1,97 @@
+package com.fishdishiot.iot.domain;
+
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.io.Serializable;
+import java.util.Date;
+
+/**
+ * 设备信息对象 agriculture_device
+ *
+ * @author bxwy
+ * @date 2025-05-26
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@TableName(value ="agriculture_device")
+@ApiModel(value = "AgricultureDevice" , description="设备信息表")
+public class AgricultureDevice extends BaseEntityPlus implements Serializable
+{
+    private static final long serialVersionUID = 1L;
+
+    /** 主键ID */
+    @TableId(value="id",type = IdType.AUTO)
+    @ApiModelProperty(value="设备ID")
+    private Long id;
+
+    /** 设备名称 */
+    @TableField(value="device_name")
+    @ApiModelProperty(value="设备名称")
+    private String deviceName;
+
+    /** 设备类型（传感器、控制器、网关等） */
+    @TableField(value="device_image")
+    @ApiModelProperty(value="设备图片URL）")
+    private String deviceImage;
+
+    /** 设备类型（传感器、控制器、网关等） */
+    @TableField(value="device_type_id")
+    @ApiModelProperty(value="设备类型（传感器、控制器、网关等）")
+    private String deviceTypeId;
+
+    /** 设备物理在线状态（0-离线，1-在线） */
+    @TableField(value="status")
+    @ApiModelProperty(value="设备状态（0-离线，1-在线）")
+    private String status;
+
+    /** 用户控制状态设备状态（0-离线，1-在线） */
+    @TableField(value="control_status")
+    @ApiModelProperty(value="设备状态（0-离线，1-在线）")
+    private String controlStatus;
+
+    /** 告警状态（0-正常，1-告警） */
+    @TableField(value="alarm_status")
+    @ApiModelProperty(value="告警状态（0-正常，1-告警）")
+    private String alarmStatus;
+
+    /** 最后在线时间 */
+    @TableField(value="last_online_time")
+    @ApiModelProperty(value="最后在线时间")
+    private Date lastOnlineTime;
+
+    /** 大棚id，空为没有绑定大棚 */
+    @TableField(value="pasture_id")
+    @ApiModelProperty(value="大棚id，空为没有绑定大棚")
+    private String pastureId;
+
+    /** 分区id，空为没有绑定分区 */
+    @TableField(value="batch_id")
+    @ApiModelProperty(value="分区id，空为没有绑定分区")
+    private String batchId;
+
+    /** 区块地址 */
+    @TableField(value="block_address")
+    @ApiModelProperty(value="区块地址")
+    private String blockAddress;
+
+    /** 传感器指令 */
+    @TableField(value="sensor_command")
+    @ApiModelProperty(value="传感器指令")
+    private String sensorCommand;
+
+    /** 传感器设备地址 */
+    @TableField(value="sensor_address")
+    @ApiModelProperty(value="传感器设备地址")
+    private String sensorAddress;
+}

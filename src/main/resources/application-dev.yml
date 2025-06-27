@@ -1,0 +1,24 @@
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url: jdbc:mysql://192.168.31.37:3306/fish-dish-server?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+
+mqtt:
+  server-uri: tcp://localhost:1883
+  client-id: fish-dish-iot
+  username: guest
+  password: guest
+  default-topic: /fish-dish/data
+  completion-timeout: 5000
+
+serial:
+  port-name: COM3
+  baud-rate: 9600
