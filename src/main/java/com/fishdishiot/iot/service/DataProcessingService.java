@@ -8,6 +8,7 @@ import com.fishdishiot.iot.gateway.MqttGateway;
 import com.fishdishiot.iot.service.AgricultureDeviceMqttConfigService;
 import com.fishdishiot.iot.service.AgricultureWaterQualityDataService;
 import com.fishdishiot.iot.service.AgricultureWeatherDataService;
+import com.fishdishiot.iot.util.WaterQualityRandomUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -117,7 +118,7 @@ public class DataProcessingService {
                 mqttGateway.sendToMqtt(objectMapper.writeValueAsString(waterData), topic);
                 log.info("水质数据成功发布到MQTT主题 {}", topic);
                 
-                // 新增：检查预警
+                // 检查预警
                 checkWaterQualityAlerts(waterData, parsedData);
                 
             } else if ("weather".equals(type)) {
@@ -160,17 +161,22 @@ public class DataProcessingService {
     private AgricultureWaterQualityData createWaterQualityData(Map<String, Object> data) {
         AgricultureWaterQualityData waterData = new AgricultureWaterQualityData();
         waterData.setDeviceId(Long.valueOf(Objects.toString(data.get("deviceId"))));
-        
         // 设置大棚ID和分区ID
         waterData.setPastureId((String) data.get("pastureId"));
         waterData.setBatchId((String) data.get("batchId"));
-        
-        // 使用安全的getDoubleValue方法，避免因数据为null或格式错误导致程序崩溃
-        waterData.setPhValue(getDoubleValue(data.get("ph_value"), 0.0));
-        waterData.setDissolvedOxygen(getDoubleValue(data.get("dissolved_oxygen"), 0.0));
-        waterData.setAmmoniaNitrogen(getDoubleValue(data.get("ammonia_nitrogen"), 0.0));
-        waterData.setWaterTemperature(getDoubleValue(data.get("water_temperature"), 0.0));
-        waterData.setConductivity(getDoubleValue(data.get("conductivity"), 0.0));
+        // 解析ph和水温
+        Double phValue = getDoubleValue(data.get("ph_value"), null);
+        Double waterTemperature = getDoubleValue(data.get("water_temperature"), null);
+        // 其他参数
+        Double dissolvedOxygen = WaterQualityRandomUtil.getNextDissolvedOxygen();
+        Double ammoniaNitrogen = WaterQualityRandomUtil.getNextAmmoniaNitrogen();
+        Double conductivity = WaterQualityRandomUtil.getNextConductivity();
+        // 赋值
+        waterData.setPhValue(phValue);
+        waterData.setWaterTemperature(waterTemperature);
+        waterData.setDissolvedOxygen(dissolvedOxygen);
+        waterData.setAmmoniaNitrogen(ammoniaNitrogen);
+        waterData.setConductivity(conductivity);
         waterData.setCollectTime(LocalDateTime.now()); // 设置数据采集时间为当前服务器时间
         return waterData;
     }
