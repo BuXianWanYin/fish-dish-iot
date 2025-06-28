@@ -84,4 +84,5 @@ public interface AgricultureDeviceSensorAlertService extends IService<Agricultur
      * @return 结果
      */
     public int deleteAgricultureDeviceSensorAlertById(Long id);
+    
 }

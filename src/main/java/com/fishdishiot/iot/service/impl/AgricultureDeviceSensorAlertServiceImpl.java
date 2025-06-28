@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishdishiot.iot.domain.AgricultureThresholdConfig;
@@ -40,6 +41,23 @@ public class AgricultureDeviceSensorAlertServiceImpl extends ServiceImpl<Agricul
     @Autowired
     private ObjectMapper objectMapper;
 
+       /**
+     * 检查传感器数据是否超出阈值并生成预警（含去重 自动消警）。
+     * 1. 若数据超出阈值，先查找最近一条同类预警（同设备、参数、类型、分区、大棚）。
+     *    - 若存在未恢复（status=0）的同类预警，则不再生成新预警，避免重复。
+     *    - 若无未恢复预警，则插入新预警。
+     * 2. 若数据恢复正常，且存在未恢复的同类预警，自动将其状态设为已处理（status=1）。
+     * 该方法支持人工消警和自动消警，保证同一异常只生成一条预警，恢复后再异常才生成新预警。
+     *
+     * @param deviceId   设备ID
+     * @param deviceName 设备名称
+     * @param deviceType 设备类型
+     * @param pastureId  大棚ID
+     * @param batchId    分区ID
+     * @param paramType  参数类型
+     * @param paramValue 参数值
+     * @param unit       单位
+     */
     @Override
     public void checkAndGenerateAlert(Long deviceId, String deviceName, String deviceType,
                                       String pastureId, String batchId, String paramType,
@@ -51,17 +69,17 @@ public class AgricultureDeviceSensorAlertServiceImpl extends ServiceImpl<Agricul
                 log.debug("设备 {} 参数 {} 未配置阈值，跳过预警检查", deviceId, paramType);
                 return;
             }
-
+    
             // 2. 检查是否超出阈值
             boolean isAlert = false;
             String alertType = "";
             String alertMessage = "";
             Long alertLevel = 0L; // 默认警告级别
-
+    
             BigDecimal minThreshold = config.getThresholdMin() == null ? null : BigDecimal.valueOf(config.getThresholdMin());
             BigDecimal maxThreshold = config.getThresholdMax() == null ? null : BigDecimal.valueOf(config.getThresholdMax());
             BigDecimal value = BigDecimal.valueOf(paramValue);
-
+    
             // 检查下限
             if (minThreshold != null && value.compareTo(minThreshold) < 0) {
                 isAlert = true;
@@ -78,9 +96,26 @@ public class AgricultureDeviceSensorAlertServiceImpl extends ServiceImpl<Agricul
                 alertMessage = String.format("%s值过高: %.2f%s，超过阈值%.2f%s",
                         paramType, paramValue, unit, maxThreshold, unit);
             }
-
-            // 3. 如果超出阈值，生成预警
+    
+            // 3. 预警去重与自动消警
+            AgricultureDeviceSensorAlert lastAlert = this.getOne(
+                new QueryWrapper<AgricultureDeviceSensorAlert>()
+                    .eq("device_id", deviceId)
+                    .eq("param_name", paramType)
+                    .eq("alert_type", alertType)
+                    .eq("batch_id", batchId)
+                    .eq("pasture_id", pastureId)
+                    .orderByDesc("alert_time")
+                    .last("limit 1")
+            );
+    
             if (isAlert) {
+                // 如果有同类预警且未恢复（无论人工还是自动消警），都不生成新预警
+                if (lastAlert != null && lastAlert.getStatus() != null && lastAlert.getStatus() == 0L) {
+                    log.info("已有未恢复的相同预警，跳过生成: {}", alertMessage);
+                    return;
+                }
+                // 生成新预警
                 AgricultureDeviceSensorAlert alert = AgricultureDeviceSensorAlert.builder()
                         .alertType(alertType)
                         .alertMessage(alertMessage)
@@ -97,21 +132,33 @@ public class AgricultureDeviceSensorAlertServiceImpl extends ServiceImpl<Agricul
                         .alertLevel(alertLevel)
                         .status(0L) // 未处理
                         .build();
-
-                // 4. 保存预警信息
+    
                 this.insertAgricultureDeviceSensorAlert(alert);
                 log.warn("生成预警: {}", alertMessage);
-
-                // 5. 处理预警（发送MQTT消息等）
                 processAlert(alert);
+            } else {
+                // 数据已恢复，自动消警
+                if (lastAlert != null && lastAlert.getStatus() != null && lastAlert.getStatus() == 0L) {
+                    lastAlert.setStatus(1L);
+                    lastAlert.setUpdateTime(LocalDateTime.now());
+                    this.updateById(lastAlert);
+                    log.info("数据恢复，自动消警: deviceId={}, paramType={}, alertType={}", deviceId, paramType, lastAlert.getAlertType());
+                }
             }
-
         } catch (Exception e) {
             log.error("检查预警时发生错误: deviceId={}, paramType={}, paramValue={}",
                     deviceId, paramType, paramValue, e);
         }
     }
 
+
+     /**
+     * 处理预警信息（推送MQTT消息）。
+     * 构建预警消息内容（包含预警ID、设备信息、参数、级别、时间等）。
+     * 将预警消息以JSON格式推送到指定MQTT主题。
+     *
+     * @param alert 预警信息对象
+     */
     @Override
     public void processAlert(AgricultureDeviceSensorAlert alert) {
         try {
