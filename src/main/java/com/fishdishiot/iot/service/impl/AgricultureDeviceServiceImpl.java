@@ -1,9 +1,10 @@
-package com.fishdishiot.iot.service;
+package com.fishdishiot.iot.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fishdishiot.iot.domain.AgricultureDevice;
 import com.fishdishiot.iot.domain.AgricultureDeviceMqttConfig;
 import com.fishdishiot.iot.mapper.AgricultureDeviceMapper;
+import com.fishdishiot.iot.service.AgricultureDeviceService;
 import org.springframework.stereotype.Service;
 
 @Service

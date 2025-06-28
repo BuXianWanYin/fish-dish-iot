@@ -35,12 +35,16 @@ public class DataProcessingService {
     
     @Autowired
     private AgricultureDeviceMqttConfigService deviceMqttConfigService; //Mqtt配置
+
     @Autowired
     private MqttGateway mqttGateway; // MQTT消息推送网关
 
     @Autowired
     private ObjectMapper objectMapper; // Spring Boot自动配置的JSON处理工具
 
+    // 新增预警服务
+    @Autowired
+    private AgricultureDeviceSensorAlertService agricultureDeviceSensorAlertService;
 
     /**
      * 处理字节数组形式的数据。
@@ -108,17 +112,27 @@ public class DataProcessingService {
                 AgricultureWaterQualityData waterData = createWaterQualityData(parsedData);
                 waterQualityDataService.save(waterData);
                 log.info("成功保存水质数据: {}", waterData);
+                
                 // 推送到设备专属topic
                 mqttGateway.sendToMqtt(objectMapper.writeValueAsString(waterData), topic);
                 log.info("水质数据成功发布到MQTT主题 {}", topic);
+                
+                // 新增：检查预警
+                checkWaterQualityAlerts(waterData, parsedData);
+                
             } else if ("weather".equals(type)) {
                 // 气象数据，存表
                 AgricultureWeatherData weatherData = createWeatherData(parsedData);
                 weatherDataService.save(weatherData);
                 log.info("成功保存气象数据: {}", weatherData);
+                
                 // 推送到设备专属topic
                 mqttGateway.sendToMqtt(objectMapper.writeValueAsString(weatherData), topic);
                 log.info("气象数据成功发布到MQTT主题 {}", topic);
+                
+                // 新增：检查预警
+                checkWeatherAlerts(weatherData, parsedData);
+                
             } else {
                 // 其它类型，直接推送原始数据
                 mqttGateway.sendToMqtt(objectMapper.writeValueAsString(parsedData), topic);
@@ -218,6 +232,94 @@ public class DataProcessingService {
         } catch (Exception e) {
             log.warn("无法转换值 '{}' 为Double类型，使用默认值 '{}'", value, defaultValue);
             return defaultValue;
+        }
+    }
+
+    /**
+     * 检查水质数据预警
+     */
+    private void checkWaterQualityAlerts(AgricultureWaterQualityData waterData, Map<String, Object> parsedData) {
+        Long deviceId = waterData.getDeviceId();
+        String deviceName = (String) parsedData.get("deviceName");
+        String deviceType = (String) parsedData.get("type");
+        String pastureId = waterData.getPastureId();
+        String batchId = waterData.getBatchId();
+
+        // 检查PH值
+        if (waterData.getPhValue() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "ph_value", waterData.getPhValue(), "");
+        }
+
+        // 检查溶解氧
+        if (waterData.getDissolvedOxygen() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "dissolved_oxygen", waterData.getDissolvedOxygen(), "mg/L");
+        }
+
+        // 检查氨氮
+        if (waterData.getAmmoniaNitrogen() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "ammonia_nitrogen", waterData.getAmmoniaNitrogen(), "mg/L");
+        }
+
+        // 检查水温
+        if (waterData.getWaterTemperature() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "water_temperature", waterData.getWaterTemperature(), "℃");
+        }
+
+        // 检查电导率
+        if (waterData.getConductivity() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "conductivity", waterData.getConductivity(), "μS/cm");
+        }
+    }
+
+    /**
+     * 检查气象数据预警
+     */
+    private void checkWeatherAlerts(AgricultureWeatherData weatherData, Map<String, Object> parsedData) {
+        Long deviceId = weatherData.getDeviceId();
+        String deviceName = (String) parsedData.get("deviceName");
+        String deviceType = (String) parsedData.get("type");
+        String pastureId = weatherData.getPastureId();
+        String batchId = weatherData.getBatchId();
+
+        // 检查温度
+        if (weatherData.getTemperature() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "temperature", weatherData.getTemperature(), "℃");
+        }
+
+        // 检查湿度
+        if (weatherData.getHumidity() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "humidity", weatherData.getHumidity(), "%");
+        }
+
+        // 检查风速
+        if (weatherData.getWindSpeed() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "wind_speed", weatherData.getWindSpeed(), "m/s");
+        }
+
+        // 检查光照强度
+        if (weatherData.getLightIntensity() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "light_intensity", weatherData.getLightIntensity(), "lux");
+        }
+
+        // 检查降雨量
+        if (weatherData.getRainfall() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "rainfall", weatherData.getRainfall(), "mm");
+        }
+
+        // 检查气压
+        if (weatherData.getAirPressure() != null) {
+            agricultureDeviceSensorAlertService.checkAndGenerateAlert(deviceId, deviceName, deviceType, pastureId, batchId,
+                "air_pressure", weatherData.getAirPressure(), "hPa");
         }
     }
 } 

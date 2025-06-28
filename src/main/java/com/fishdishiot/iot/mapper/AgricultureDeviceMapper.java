@@ -6,5 +6,5 @@ import org.apache.ibatis.annotations.Mapper;
 
 @Mapper
 public interface AgricultureDeviceMapper extends BaseMapper<AgricultureDevice> {
-    // 只用基础功能即可
+
 }
