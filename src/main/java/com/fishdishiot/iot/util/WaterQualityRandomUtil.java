@@ -4,10 +4,10 @@ import java.util.Random;
 
 public class WaterQualityRandomUtil {
     private static final Random RANDOM = new Random();
-    // 上一次的值，初始值可自定义
-    private static double lastDissolvedOxygen = 7.0; // mg/L
-    private static double lastAmmoniaNitrogen = 0.5; // mg/L
-    private static double lastConductivity = 300.0; // μS/cm
+    // 初始值
+    private static double lastDissolvedOxygen = 6.8; // 溶解氧  mg/L
+    private static double lastAmmoniaNitrogen = 0.2; // 氨氮   mg/L
+    private static double lastConductivity = 290.0; // 电导率   μS/cm
 
     // 溶解氧
     public static double getNextDissolvedOxygen() {
