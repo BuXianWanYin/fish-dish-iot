@@ -194,7 +194,7 @@ public class DataProcessingService {
         weatherData.setPastureId((String) data.get("pastureId"));
         weatherData.setBatchId((String) data.get("batchId"));
         
-        // 安全地设置数值字段，如果传入数据为null则使用默认值0.0
+        // 设置数值字段，如果传入数据为null则使用默认值0.0
         weatherData.setTemperature(getDoubleValue(data.get("temperature"), 0.0));
         weatherData.setHumidity(getDoubleValue(data.get("humidity"), 0.0));
         weatherData.setWindSpeed(getDoubleValue(data.get("wind_speed"), 0.0));
@@ -212,7 +212,7 @@ public class DataProcessingService {
     }
     
     /**
-     * 安全地从一个Object对象获取Double值。
+     * 从Object对象获取Double值。
      * @param value 待转换的对象
      * @param defaultValue 如果转换失败或对象为null时返回的默认值
      * @return 转换后的Double值或默认值

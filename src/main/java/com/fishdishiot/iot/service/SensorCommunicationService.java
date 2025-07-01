@@ -54,7 +54,7 @@ public class SensorCommunicationService {
 
     /**
      * 确保此方法在SensorCommunicationService的Bean初始化后立即执行。
-     * 主要用于初始化线程池。
+     * 初始化线程池。
      */
     @PostConstruct
     public void init() {
@@ -64,7 +64,7 @@ public class SensorCommunicationService {
     }
 
     /**
-     * EventListener注解监听应用就绪事件（ApplicationReadyEvent）。
+     * 监听应用就绪事件（ApplicationReadyEvent）。
      * spring boot应用完全启动并准备好接收请求时，调用此方法。
      */
     @EventListener(ApplicationReadyEvent.class)
@@ -74,7 +74,7 @@ public class SensorCommunicationService {
     }
 
     /**
-     * PreDestroy确保此方法在Spring容器销毁SensorCommunicationService的Bean之前调用。
+     * Spring容器销毁SensorCommunicationService的Bean之前调用。
      * 执行资源清理工作，优雅地关闭线程池。
      */
     @PreDestroy
