@@ -64,6 +64,13 @@ public class DeviceOperationController {
             }
             int result = serialPortService.writeToSerial(hexStringToByteArray(command));
             if (result > 0) {
+                // 指令发送成功后，更新controlStatus
+                if ("on".equalsIgnoreCase(action)) {
+                    device.setControlStatus("1");
+                } else if ("off".equalsIgnoreCase(action)) {
+                    device.setControlStatus("0");
+                }
+                deviceService.updateById(device);
                 return AjaxResult.success("指令发送成功");
             } else {
                 return AjaxResult.error(500, "指令发送失败");
@@ -83,6 +90,9 @@ public class DeviceOperationController {
                     log.error("[设备操作] 开启指令发送失败: {}", onCommand1);
                     return AjaxResult.error(500, "开启指令发送失败");
                 }
+                // 指令发送成功后，更新controlStatus为1
+                device.setControlStatus("1");
+                deviceService.updateById(device);
                 new Thread(() -> {
                     try {
                         Thread.sleep(8000);
@@ -103,6 +113,9 @@ public class DeviceOperationController {
                     log.error("[设备操作] 关闭指令发送失败: {}", onCommand2);
                     return AjaxResult.error(500, "关闭指令发送失败");
                 }
+                // 指令发送成功后，更新controlStatus为0
+                device.setControlStatus("0");
+                deviceService.updateById(device);
                 new Thread(() -> {
                     try {
                         Thread.sleep(8000);
