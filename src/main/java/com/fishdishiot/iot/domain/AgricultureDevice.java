@@ -1,18 +1,18 @@
 package com.fishdishiot.iot.domain;
 
+import java.io.Serializable;;
+import java.util.Date;
+
 import com.baomidou.mybatisplus.annotation.IdType;
-import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.TableField;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.io.Serializable;
-import java.util.Date;
 
 /**
  * 设备信息对象 agriculture_device
@@ -82,7 +82,7 @@ public class AgricultureDevice extends BaseEntityPlus implements Serializable
 
     /** 区块地址 */
     @TableField(value="block_address")
-    @ApiModelProperty(value="区块地址")
+    @ApiModelProperty(value="合约地址")
     private String blockAddress;
 
     /** 传感器指令 */
@@ -94,4 +94,18 @@ public class AgricultureDevice extends BaseEntityPlus implements Serializable
     @TableField(value="sensor_address")
     @ApiModelProperty(value="传感器设备地址")
     private String sensorAddress;
+
+    /** 打开指令 */
+    @TableField(value="command_on")
+    @ApiModelProperty(value="打开指令")
+    private String commandOn;
+
+    /** 关闭指令 */
+    @TableField(value="command_off")
+    @ApiModelProperty(value="关闭指令")
+    private String commandOff;
+
+    @TableField(value="is_controllable")
+    @ApiModelProperty(value="是否可控设备")
+    private String isControllable;
 }
