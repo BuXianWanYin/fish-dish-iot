@@ -27,3 +27,11 @@ mqtt:
 serial:
   port-name: COM3
   baud-rate: 9600
+
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*.xml
+  type-aliases-package: com.fishdishiot.iot.domain
+  configuration:
+    # log-impl: org.apache.ibatis.logging.stdout.StdOutImpl  # 注释或删除这一行
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl  # 或者改为这一行
+    map-underscore-to-camel-case: true
