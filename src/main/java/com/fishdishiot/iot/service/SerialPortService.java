@@ -24,9 +24,6 @@ public class SerialPortService {
     @Value("${serial.baud-rate}")
     private int baudRate;
 
-    @Autowired
-    private DataProcessingService dataProcessingService;
-
     private SerialPort commPort;
 
     @PostConstruct
@@ -71,13 +68,15 @@ public class SerialPortService {
      * @return 写入的字节数
      */
     public int writeToSerial(byte[] data) {
-        if (commPort != null && commPort.isOpen()) {
-            int bytesWritten = commPort.writeBytes(data, data.length);
-            log.debug("向串口写入 {} 字节", bytesWritten);
-            return bytesWritten;
-        } else {
-            log.error("串口未打开");
-            return -1;
+        synchronized (serialLock) {
+            if (commPort != null && commPort.isOpen()) {
+                int bytesWritten = commPort.writeBytes(data, data.length);
+                log.debug("向串口写入 {} 字节", bytesWritten);
+                return bytesWritten;
+            } else {
+                log.error("串口未打开");
+                return -1;
+            }
         }
     }
 

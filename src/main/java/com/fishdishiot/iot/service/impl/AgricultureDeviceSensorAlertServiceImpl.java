@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fishdishiot.iot.domain.AgricultureThresholdConfig;
 import com.fishdishiot.iot.gateway.MqttGateway;
 import com.fishdishiot.iot.service.AgricultureThresholdConfigService;
+import com.fishdishiot.iot.service.ParamTypeDictService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +41,9 @@ public class AgricultureDeviceSensorAlertServiceImpl extends ServiceImpl<Agricul
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private ParamTypeDictService paramTypeDictService;
 
        /**
      * 检查传感器数据是否超出阈值并生成预警（含去重 自动消警）。
@@ -85,16 +89,18 @@ public class AgricultureDeviceSensorAlertServiceImpl extends ServiceImpl<Agricul
                 isAlert = true;
                 alertType = "LOW";
                 alertLevel = determineAlertLevel(value, minThreshold, true);
-                alertMessage = String.format("%s值过低: %.2f%s，低于阈值%.2f%s",
-                        paramType, paramValue, unit, minThreshold, unit);
+                String paramNameZh = paramTypeDictService.getCnNameByEn(paramType); // 获取中文参数名
+                    alertMessage = String.format("%s值过低: %.2f%s，低于阈值%.2f%s",
+                            paramNameZh, paramValue, unit, minThreshold, unit);
             }
             // 检查上限
             else if (maxThreshold != null && value.compareTo(maxThreshold) > 0) {
                 isAlert = true;
                 alertType = "HIGH";
                 alertLevel = determineAlertLevel(value, maxThreshold, false);
+                String paramNameZh = paramTypeDictService.getCnNameByEn(paramType); // 获取中文参数名
                 alertMessage = String.format("%s值过高: %.2f%s，超过阈值%.2f%s",
-                        paramType, paramValue, unit, maxThreshold, unit);
+                        paramNameZh, paramValue, unit, maxThreshold, unit);
             }
     
             // 3. 预警去重与自动消警

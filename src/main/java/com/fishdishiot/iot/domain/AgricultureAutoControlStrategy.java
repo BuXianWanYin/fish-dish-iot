@@ -2,20 +2,22 @@ package com.fishdishiot.iot.domain;
 
 import com.baomidou.mybatisplus.annotation.*;
 import com.fasterxml.jackson.annotation.JsonFormat;
-import io.swagger.annotations.ApiModel;
-import io.swagger.annotations.ApiModelProperty;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Data;
+import lombok.Builder;
 import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 
 import java.io.Serializable;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+import io.swagger.annotations.ApiModel;
+import io.swagger.annotations.ApiModelProperty;
 
-/** 
+
+/**
  * @author bxwy
- * @description  
+ * @description
  */
 @Data
 @Builder
@@ -51,9 +53,17 @@ public class AgricultureAutoControlStrategy implements Serializable  {
     @ApiModelProperty(value="监测参数（如 temperature）")
     private String parameter;
 
-    @TableField(value="condition")
-    @ApiModelProperty(value="触发条件（如 > 35）")
-    private String condition;
+    @TableField(value = "condition_operator")
+    @ApiModelProperty(value = "触发条件操作符")
+    private String conditionOperator;
+
+    @TableField(value = "condition_value")
+    @ApiModelProperty(value = "触发条件数值")
+    private BigDecimal conditionValue;
+
+    @TableField(value = "execute_duration")
+    @ApiModelProperty(value = "执行时长(秒)")
+    private Integer executeDuration;
 
     @TableField(value="action")
     @ApiModelProperty(value="执行动作（如 on/off）")
