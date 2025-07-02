@@ -3,7 +3,6 @@ package com.fishdishiot.iot.service;
 import com.fazecast.jSerialComm.SerialPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -17,7 +16,7 @@ import java.util.stream.Collectors;
 public class SerialPortService {
 
     private static final Logger log = LoggerFactory.getLogger(SerialPortService.class);
-
+    private final Object serialLock = new Object(); // 串口全局锁
     @Value("${serial.port-name}")
     private String portName;
 
@@ -86,19 +85,21 @@ public class SerialPortService {
      * @return 读取的数据
      */
     public byte[] readFromSerial(int maxBytes) {
-        if (commPort != null && commPort.isOpen()) {
-            byte[] data = new byte[maxBytes];
-            int bytesRead = commPort.readBytes(data, Math.min(maxBytes, commPort.bytesAvailable()));
-            if (bytesRead > 0) {
-                byte[] result = new byte[bytesRead];
-                System.arraycopy(data, 0, result, 0, bytesRead);
-                log.debug("从串口读取 {} 字节", bytesRead);
-                return result;
+        synchronized (serialLock) {
+            if (commPort != null && commPort.isOpen()) {
+                byte[] data = new byte[maxBytes];
+                int bytesRead = commPort.readBytes(data, Math.min(maxBytes, commPort.bytesAvailable()));
+                if (bytesRead > 0) {
+                    byte[] result = new byte[bytesRead];
+                    System.arraycopy(data, 0, result, 0, bytesRead);
+                    log.debug("从串口读取 {} 字节", bytesRead);
+                    return result;
+                }
+            } else {
+                log.error("串口未打开");
             }
-        } else {
-            log.error("串口未打开");
+            return new byte[0];
         }
-        return new byte[0];
     }
 
     /**
