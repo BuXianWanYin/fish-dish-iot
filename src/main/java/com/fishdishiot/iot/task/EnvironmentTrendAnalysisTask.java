@@ -30,8 +30,8 @@ public class EnvironmentTrendAnalysisTask {
     * cron表达式说明：秒 分 时 日 月 周
     * "0 0 * * * ?" 表示每小时整点执行一次
     */
-    @Scheduled(cron = "0 0 * * * ?")  //每小时
-//    @Scheduled(cron = "0 * * * * ?") //测试用 1分钟一次
+//    @Scheduled(cron = "0 0 * * * ?")  //每小时
+    @Scheduled(cron = "0 * * * * ?") //测试用 1分钟一次
     public void executeAnalysis() {
         try {
             log.info("开始执行环境趋势分析任务...");
