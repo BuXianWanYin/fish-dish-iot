@@ -6,12 +6,14 @@ import com.fishdishiot.iot.service.AgricultureAutoControlStrategyService;
 import com.fishdishiot.iot.service.AgricultureDeviceService;
 import com.fishdishiot.iot.service.AutoControlService;
 import com.fishdishiot.iot.service.DeviceOperationService;
+import com.fishdishiot.iot.util.SerialCommandExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -27,6 +29,9 @@ public class AutoControlServiceImpl implements AutoControlService {
     @Autowired
     private AgricultureDeviceService deviceService;
 
+    @Autowired
+    private SerialCommandExecutor serialCommandExecutor;
+
     /**
      * 自动检查所有启用的设备自动调节策略，并根据本次采集到的传感器数据自动执行设备操作。
      *
@@ -35,11 +40,11 @@ public class AutoControlServiceImpl implements AutoControlService {
     @Override
     public void checkAndExecuteStrategy(Map<String, Object> parsedData) {
         log.info("进入checkAndExecuteStrategy方法，收到数据: {}", parsedData);
-        // 1. 查询所有启用的自动调节策略（status=1）
         List<AgricultureAutoControlStrategy> strategies = strategyService.getAllActiveStrategies();
         log.info("[自动调节] 共检测到 {} 条启用的自动调节策略", strategies.size());
 
-        // 2. 遍历每一条策略，逐一判断是否满足触发条件
+        int onIntervalMs = 300; // 300毫秒间隔
+
         for (AgricultureAutoControlStrategy strategy : strategies) {
             String parameter = strategy.getParameter();
             if (!parsedData.containsKey(parameter)) {
@@ -90,7 +95,6 @@ public class AutoControlServiceImpl implements AutoControlService {
                     continue;
                 }
 
-                // 判断设备是单组还是多组指令
                 int index = 0;
                 AgricultureDevice device = deviceService.getById(deviceId);
                 if (device != null) {
@@ -102,35 +106,40 @@ public class AutoControlServiceImpl implements AutoControlService {
                     }
                 }
 
-                // === 状态判断防抖 ===
-                // 目标状态：on -> "1"，off -> "0"
                 String targetStatus = "on".equalsIgnoreCase(strategy.getAction()) ? "1" : "0";
                 if (device != null && targetStatus.equals(device.getControlStatus())) {
                     log.info("[自动调节] 策略[ID={}] 设备 {} 已经处于目标状态 {}，不重复执行", strategy.getId(), deviceId, targetStatus);
                     continue;
                 }
 
-                log.info("[自动调节] 策略[ID={}] 满足条件，执行设备控制: deviceId={}, action={}, index={}",
-                        strategy.getId(), deviceId, strategy.getAction(), index);
+                final Long finalDeviceId = deviceId;
+                final String finalAction = strategy.getAction();
+                final int finalIndex = index;
+                final Integer duration = strategy.getExecuteDuration();
+                final Long strategyId = strategy.getId();
 
-                deviceOperationService.controlDevice(deviceId, strategy.getAction(), index);
+                // on指令之间加间隔
+                try {
+                    Thread.sleep(onIntervalMs);
+                } catch (InterruptedException ignored) {}
 
-                // 如果是“开启”操作，并且策略配置了执行时长，则延迟指定秒数后自动关闭
-                if ("on".equalsIgnoreCase(strategy.getAction())
-                        && strategy.getExecuteDuration() != null
-                        && strategy.getExecuteDuration() > 0) {
-                    Integer duration = strategy.getExecuteDuration();
-                    int finalIndex = index;
-                    log.info("[自动调节] 策略[ID={}] 设备 {} 已开启，{} 秒后将自动关闭", strategy.getId(), deviceId, duration);
-                    new Thread(() -> {
-                        try {
-                            Thread.sleep(duration * 1000L);
-                            log.info("[自动调节] 策略[ID={}] 设备 {} 到达自动关闭时间，执行关闭", strategy.getId(), deviceId);
-                            deviceOperationService.controlDevice(deviceId, "off", finalIndex);
-                        } catch (InterruptedException ignored) {
-                        }
-                    }).start();
-                }
+                serialCommandExecutor.submit(() -> {
+                    log.info("[自动调节] 串行执行设备控制: deviceId={}, action={}, index={}", finalDeviceId, finalAction, finalIndex);
+                    deviceOperationService.controlDevice(finalDeviceId, finalAction, finalIndex);
+
+                    if ("on".equalsIgnoreCase(finalAction)
+                            && duration != null
+                            && duration > 0) {
+                        log.info("[自动调节] 策略[ID={}] 设备 {} 已开启，{} 秒后将自动关闭", strategyId, finalDeviceId, duration);
+                        new Thread(() -> {
+                            try {
+                                Thread.sleep(duration * 1000L);
+                                log.info("[自动调节] 策略[ID={}] 设备 {} 到达自动关闭时间，执行关闭", strategyId, finalDeviceId);
+                                deviceOperationService.controlDevice(finalDeviceId, "off", finalIndex);
+                            } catch (InterruptedException ignored) {}
+                        }).start();
+                    }
+                });
             }
         }
     }
