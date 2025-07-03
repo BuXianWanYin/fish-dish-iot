@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class AutoControlServiceImpl implements AutoControlService {
@@ -32,6 +33,11 @@ public class AutoControlServiceImpl implements AutoControlService {
     @Autowired
     private SerialCommandExecutor serialCommandExecutor;
 
+    // 防抖动状态记录
+    private final Map<Long, Boolean> lastTriggerMap = new ConcurrentHashMap<>();
+    private final Map<Long, Long> lastOffTimeMap = new ConcurrentHashMap<>();
+    private static final long COOLDOWN_MILLIS = 120 * 1000;  // 60秒冷却期
+
     /**
      * 自动检查所有启用的设备自动调节策略，并根据本次采集到的传感器数据自动执行设备操作。
      *
@@ -43,104 +49,97 @@ public class AutoControlServiceImpl implements AutoControlService {
         List<AgricultureAutoControlStrategy> strategies = strategyService.getAllActiveStrategies();
         log.info("[自动调节] 共检测到 {} 条启用的自动调节策略", strategies.size());
 
-        int onIntervalMs = 300; // 300毫秒间隔
+        int onIntervalMs = 1000; // 300毫秒间隔
+
+        // 先收集所有本轮需要on的任务
+        List<Runnable> onTasks = new ArrayList<>();
 
         for (AgricultureAutoControlStrategy strategy : strategies) {
             String parameter = strategy.getParameter();
-            if (!parsedData.containsKey(parameter)) {
-                log.info("[自动调节] 策略[ID={}] 监测参数 {} 本次数据未包含，跳过", strategy.getId(), parameter);
-                continue;
-            }
-
+            if (!parsedData.containsKey(parameter)) continue;
             Object valueObj = parsedData.get(parameter);
-            if (valueObj == null) {
-                log.info("[自动调节] 策略[ID={}] 监测参数 {} 本次采集值为null，跳过", strategy.getId(), parameter);
-                continue;
-            }
+            if (valueObj == null) continue;
 
             BigDecimal value;
-            try {
-                value = new BigDecimal(valueObj.toString());
-            } catch (Exception e) {
-                log.warn("[自动调节] 策略[ID={}] 监测参数 {} 采集值 {} 转换为数字失败，跳过", strategy.getId(), parameter, valueObj);
-                continue;
-            }
+            try { value = new BigDecimal(valueObj.toString()); }
+            catch (Exception e) { continue; }
 
             boolean match = false;
             String op = strategy.getConditionOperator();
-            if (">".equals(op)) {
-                match = value.compareTo(strategy.getConditionValue()) > 0;
-            } else if ("<".equals(op)) {
-                match = value.compareTo(strategy.getConditionValue()) < 0;
-            } else if ("=".equals(op) || "==".equals(op)) {
-                match = value.compareTo(strategy.getConditionValue()) == 0;
-            } else if (">=".equals(op)) {
-                match = value.compareTo(strategy.getConditionValue()) >= 0;
-            } else if ("<=".equals(op)) {
-                match = value.compareTo(strategy.getConditionValue()) <= 0;
-            } else {
-                log.warn("[自动调节] 策略[ID={}] 不支持的操作符 {}，跳过", strategy.getId(), op);
+            if (">".equals(op)) match = value.compareTo(strategy.getConditionValue()) > 0;
+            else if ("<".equals(op)) match = value.compareTo(strategy.getConditionValue()) < 0;
+            else if ("=".equals(op) || "==".equals(op)) match = value.compareTo(strategy.getConditionValue()) == 0;
+            else if (">=".equals(op)) match = value.compareTo(strategy.getConditionValue()) >= 0;
+            else if ("<=".equals(op)) match = value.compareTo(strategy.getConditionValue()) <= 0;
+            else continue;
+
+            Long deviceId;
+            try { deviceId = Long.valueOf(strategy.getDeviceId()); }
+            catch (Exception e) { continue; }
+
+            int index = 0;
+            AgricultureDevice device = deviceService.getById(deviceId);
+            if (device != null) {
+                String commandOn = device.getCommandOn();
+                String commandOff = device.getCommandOff();
+                if ((commandOn != null && commandOn.contains("|") && commandOn.split("\\|").length > 1)
+                        || (commandOff != null && commandOff.split("\\|").length > 1)) {
+                    index = 1;
+                }
+            }
+
+            String targetStatus = "on".equalsIgnoreCase(strategy.getAction()) ? "1" : "0";
+            if (device != null && targetStatus.equals(device.getControlStatus())) continue;
+
+            // 防抖动逻辑
+            Long lastOffTime = lastOffTimeMap.get(deviceId);
+            if (lastOffTime != null && System.currentTimeMillis() - lastOffTime < COOLDOWN_MILLIS) {
+                log.info("[自动调节] 设备 {} 处于冷却期，跳过自动开启", deviceId);
                 continue;
             }
 
-            log.info("[自动调节] 策略[ID={}] 检查参数 {} 当前值 {} 条件 {} {}，结果：{}",
-                    strategy.getId(), parameter, value, op, strategy.getConditionValue(), match ? "满足" : "不满足");
+            // 只在未触发->触发时执行on
+            Boolean lastTriggered = lastTriggerMap.getOrDefault(deviceId, false);
+            if (!(match && !lastTriggered)) continue;
+            lastTriggerMap.put(deviceId, true);
 
-            if (match) {
-                Long deviceId;
-                try {
-                    deviceId = Long.valueOf(strategy.getDeviceId());
-                } catch (Exception e) {
-                    log.error("[自动调节] 策略[ID={}] 设备ID {} 转换失败，跳过", strategy.getId(), strategy.getDeviceId());
-                    continue;
+            final Long finalDeviceId = deviceId;
+            final String finalAction = strategy.getAction();
+            final int finalIndex = index;
+            final Integer duration = strategy.getExecuteDuration();
+            final Long strategyId = strategy.getId();
+
+            onTasks.add(() -> {
+                log.info("[自动调节] 串行执行设备控制: deviceId={}, action={}, index={}", finalDeviceId, finalAction, finalIndex);
+                deviceOperationService.controlDevice(finalDeviceId, finalAction, finalIndex);
+
+                if ("on".equalsIgnoreCase(finalAction)
+                        && duration != null
+                        && duration > 0) {
+                    log.info("[自动调节] 策略[ID={}] 设备 {} 已开启，{} 秒后将自动关闭", strategyId, finalDeviceId, duration);
+                    new Thread(() -> {
+                        try {
+                            Thread.sleep(duration * 1000L);
+                            log.info("[自动调节] 策略[ID={}] 设备 {} 到达自动关闭时间，执行关闭", strategyId, finalDeviceId);
+                            deviceOperationService.controlDevice(finalDeviceId, "off", finalIndex);
+                            lastOffTimeMap.put(finalDeviceId, System.currentTimeMillis());
+                            lastTriggerMap.put(finalDeviceId, false);
+                        } catch (InterruptedException ignored) {}
+                    }).start();
                 }
+            });
+        }
 
-                int index = 0;
-                AgricultureDevice device = deviceService.getById(deviceId);
-                if (device != null) {
-                    String commandOn = device.getCommandOn();
-                    String commandOff = device.getCommandOff();
-                    if ((commandOn != null && commandOn.contains("|") && commandOn.split("\\|").length > 1)
-                            || (commandOff != null && commandOff.contains("|") && commandOff.split("\\|").length > 1)) {
-                        index = 1;
-                    }
+        // 依次（带间隔）提交on任务到队列
+        for (int i = 0; i < onTasks.size(); i++) {
+            Runnable task = onTasks.get(i);
+            boolean isLast = (i == onTasks.size() - 1);
+            serialCommandExecutor.submit(() -> {
+                task.run();
+                if (!isLast) {
+                    try { Thread.sleep(onIntervalMs); } catch (InterruptedException ignored) {}
                 }
-
-                String targetStatus = "on".equalsIgnoreCase(strategy.getAction()) ? "1" : "0";
-                if (device != null && targetStatus.equals(device.getControlStatus())) {
-                    log.info("[自动调节] 策略[ID={}] 设备 {} 已经处于目标状态 {}，不重复执行", strategy.getId(), deviceId, targetStatus);
-                    continue;
-                }
-
-                final Long finalDeviceId = deviceId;
-                final String finalAction = strategy.getAction();
-                final int finalIndex = index;
-                final Integer duration = strategy.getExecuteDuration();
-                final Long strategyId = strategy.getId();
-
-                // on指令之间加间隔
-                try {
-                    Thread.sleep(onIntervalMs);
-                } catch (InterruptedException ignored) {}
-
-                serialCommandExecutor.submit(() -> {
-                    log.info("[自动调节] 串行执行设备控制: deviceId={}, action={}, index={}", finalDeviceId, finalAction, finalIndex);
-                    deviceOperationService.controlDevice(finalDeviceId, finalAction, finalIndex);
-
-                    if ("on".equalsIgnoreCase(finalAction)
-                            && duration != null
-                            && duration > 0) {
-                        log.info("[自动调节] 策略[ID={}] 设备 {} 已开启，{} 秒后将自动关闭", strategyId, finalDeviceId, duration);
-                        new Thread(() -> {
-                            try {
-                                Thread.sleep(duration * 1000L);
-                                log.info("[自动调节] 策略[ID={}] 设备 {} 到达自动关闭时间，执行关闭", strategyId, finalDeviceId);
-                                deviceOperationService.controlDevice(finalDeviceId, "off", finalIndex);
-                            } catch (InterruptedException ignored) {}
-                        }).start();
-                    }
-                });
-            }
+            });
         }
     }
 }
