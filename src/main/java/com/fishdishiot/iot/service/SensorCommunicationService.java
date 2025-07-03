@@ -2,6 +2,7 @@ package com.fishdishiot.iot.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.fishdishiot.iot.domain.AgricultureDevice;
+import com.fishdishiot.iot.util.SerialCommandExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,9 @@ public class SensorCommunicationService {
 
     @Autowired
     private AgricultureDeviceStatusService deviceStatusService; // 设备状态服务，用于更新设备实时在线状态
+
+    @Autowired
+    private SerialCommandExecutor serialCommandExecutor; // 注入 SerialCommandExecutor
 
     // 线程池
     private ExecutorService executorService;
@@ -189,65 +193,33 @@ public class SensorCommunicationService {
         // 使用 while(!Thread.currentThread().isInterrupted()) 作为循环条件，可以优雅地响应中断信号
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                // 将数据库中存储的16进制指令字符串（如 "01 03 00 00 00 02 C4 0B"）转换为字节数组
-                byte[] commandBytes = hexStringToByteArray(commandHexStr);
-                
-                // 使用synchronized关键字锁定serialLock对象，确保同一时间只有一个线程能访问串口
-                synchronized (serialLock) {
-                    // 1. 通过串口发送指令
-                    serialPortService.writeToSerial(commandBytes);
-                    
-                    // 2. 给设备留出响应时间
-                    Thread.sleep(200);
-                    
-                    // 3. 从串口读取响应数据，最多读取256字节
-                    byte[] response = serialPortService.readFromSerial(256);
-                    
-                    // 4. 检查是否收到了有效响应
-                    if (response != null && response.length > 0) {
-                        // 只要成功收到响应，将设备标记为在线
-                        deviceStatusService.updateDeviceOnline(sensor.getId().toString());
-
-                        // 5. 根据设备类型选择合适的解析器来解析数据
-                        String deviceType = sensor.getDeviceTypeId();
-                        Map<String, Object> parsedData = parseSensorData(response, deviceType);
-                        
-                        // 6. 将一些元数据（设备ID、名称、类型、大棚和分区ID）添加到解析结果中
-                        parsedData.put("deviceId", sensorId);
-                        parsedData.put("deviceName", sensorName);
-                        parsedData.put("type", getDataTypeByDeviceType(deviceType));
-                        parsedData.put("pastureId", sensor.getPastureId());
-                        parsedData.put("batchId", sensor.getBatchId());
-                        
-                        log.info("成功接收并解析来自 {} (ID: {}) 的数据: {}", sensorName, sensorId, parsedData);
-                        
-                        // 7. 将完整的解析数据交给数据处理服务进行下一步处理
-                        dataProcessingService.processAndStore(parsedData);
-                    } else {
-                        // 如果没有收到响应，记录警告日志。此时设备状态不会更新，后续会被定时任务标记为离线。
-                        log.warn("轮询 {} (ID: {}) 未收到响应。", sensorName, sensorId);
+                serialCommandExecutor.submit(() -> {
+                    try {
+                        byte[] commandBytes = hexStringToByteArray(commandHexStr);
+                        serialPortService.writeToSerial(commandBytes);
+                        Thread.sleep(200);
+                        byte[] response = serialPortService.readFromSerial(256);
+                        if (response != null && response.length > 0) {
+                            deviceStatusService.updateDeviceOnline(sensor.getId().toString());
+                            String deviceType = sensor.getDeviceTypeId();
+                            Map<String, Object> parsedData = parseSensorData(response, deviceType);
+                            parsedData.put("deviceId", sensorId);
+                            parsedData.put("deviceName", sensorName);
+                            parsedData.put("type", getDataTypeByDeviceType(deviceType));
+                            parsedData.put("pastureId", sensor.getPastureId());
+                            parsedData.put("batchId", sensor.getBatchId());
+                            log.info("成功接收并解析来自 {} (ID: {}) 的数据: {}", sensorName, sensorId, parsedData);
+                            dataProcessingService.processAndStore(parsedData);
+                        } else {
+                            log.warn("轮询 {} (ID: {}) 未收到响应。", sensorName, sensorId);
+                        }
+                    } catch (Exception e) {
+                        log.error("采集任务异常: {}", e.getMessage(), e);
                     }
-                } // synchronized代码块结束，释放锁
-                
-                // 轮询间隔，本次成功或失败后，等待5秒再进行下一次轮询
-                Thread.sleep(5000);
-                
+                });
+                Thread.sleep(5000); // 轮询间隔
             } catch (InterruptedException e) {
-                // 当调用task.cancel(true)时，该线程会抛出InterruptedException，从而跳出循环
-                log.info("传感器 {} (ID: {}) 的轮询任务被主动中断，线程即将退出。", sensorName, sensorId);
-                Thread.currentThread().interrupt(); // 重新设置中断标志
-                break; // 退出循环
-            } catch (Exception e) {
-                // 捕获其他所有异常（如IO异常），防止任务因意外错误而终止
-                log.error("轮询传感器 {} (ID: {}) 时发生未知错误: {}", sensorName, sensorId, e.getMessage(), e);
-                try {
-                    // 发生错误后，等待更长的时间再重试，避免快速、无效的重试刷屏日志
-                    Thread.sleep(10000);
-                } catch (InterruptedException ie) {
-                    log.info("在错误等待期间，传感器 {} (ID: {}) 的任务被中断。", sensorName, sensorId);
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+                break;
             }
         }
         
