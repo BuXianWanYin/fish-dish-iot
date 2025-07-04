@@ -136,4 +136,9 @@ public class SerialPortService {
         }
         return data;
     }
+
+    // 提供串口锁对象的getter方法
+    public Object getSerialLock() {
+        return serialLock;
+    }
 } 

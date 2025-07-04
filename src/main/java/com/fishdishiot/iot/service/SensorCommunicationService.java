@@ -194,27 +194,29 @@ public class SensorCommunicationService {
         while (!Thread.currentThread().isInterrupted()) {
             try {
                 serialCommandExecutor.submit(() -> {
-                    try {
-                        byte[] commandBytes = hexStringToByteArray(commandHexStr);
-                        serialPortService.writeToSerial(commandBytes);
-                        Thread.sleep(200);
-                        byte[] response = serialPortService.readFromSerial(256);
-                        if (response != null && response.length > 0) {
-                            deviceStatusService.updateDeviceOnline(sensor.getId().toString());
-                            String deviceType = sensor.getDeviceTypeId();
-                            Map<String, Object> parsedData = parseSensorData(response, deviceType);
-                            parsedData.put("deviceId", sensorId);
-                            parsedData.put("deviceName", sensorName);
-                            parsedData.put("type", getDataTypeByDeviceType(deviceType));
-                            parsedData.put("pastureId", sensor.getPastureId());
-                            parsedData.put("batchId", sensor.getBatchId());
-                            log.info("成功接收并解析来自 {} (ID: {}) 的数据: {}", sensorName, sensorId, parsedData);
-                            dataProcessingService.processAndStore(parsedData);
-                        } else {
-                            log.warn("轮询 {} (ID: {}) 未收到响应。", sensorName, sensorId);
+                    synchronized (serialPortService.getSerialLock()) {
+                        try {
+                            byte[] commandBytes = hexStringToByteArray(commandHexStr);
+                            serialPortService.writeToSerial(commandBytes);
+                            Thread.sleep(200);
+                            byte[] response = serialPortService.readFromSerial(256);
+                            if (response != null && response.length > 0) {
+                                deviceStatusService.updateDeviceOnline(sensor.getId().toString());
+                                String deviceType = sensor.getDeviceTypeId();
+                                Map<String, Object> parsedData = parseSensorData(response, deviceType);
+                                parsedData.put("deviceId", sensorId);
+                                parsedData.put("deviceName", sensorName);
+                                parsedData.put("type", getDataTypeByDeviceType(deviceType));
+                                parsedData.put("pastureId", sensor.getPastureId());
+                                parsedData.put("batchId", sensor.getBatchId());
+                                log.info("成功接收并解析来自 {} (ID: {}) 的数据: {}", sensorName, sensorId, parsedData);
+                                dataProcessingService.processAndStore(parsedData);
+                            } else {
+                                log.warn("轮询 {} (ID: {}) 未收到响应。", sensorName, sensorId);
+                            }
+                        } catch (Exception e) {
+                            log.error("采集任务异常: {}", e.getMessage(), e);
                         }
-                    } catch (Exception e) {
-                        log.error("采集任务异常: {}", e.getMessage(), e);
                     }
                 });
                 Thread.sleep(5000); // 轮询间隔

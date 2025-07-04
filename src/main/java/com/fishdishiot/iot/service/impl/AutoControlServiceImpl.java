@@ -2,10 +2,7 @@ package com.fishdishiot.iot.service.impl;
 
 import com.fishdishiot.iot.domain.AgricultureAutoControlStrategy;
 import com.fishdishiot.iot.domain.AgricultureDevice;
-import com.fishdishiot.iot.service.AgricultureAutoControlStrategyService;
-import com.fishdishiot.iot.service.AgricultureDeviceService;
-import com.fishdishiot.iot.service.AutoControlService;
-import com.fishdishiot.iot.service.DeviceOperationService;
+import com.fishdishiot.iot.service.*;
 import com.fishdishiot.iot.util.SerialCommandExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +29,9 @@ public class AutoControlServiceImpl implements AutoControlService {
 
     @Autowired
     private SerialCommandExecutor serialCommandExecutor;
+
+    @Autowired
+    private SerialPortService serialPortService;
 
     // 防抖动状态记录
     private final Map<Long, Boolean> lastTriggerMap = new ConcurrentHashMap<>();
@@ -111,7 +111,9 @@ public class AutoControlServiceImpl implements AutoControlService {
 
             onTasks.add(() -> {
                 log.info("[自动调节] 串行执行设备控制: deviceId={}, action={}, index={}", finalDeviceId, finalAction, finalIndex);
-                deviceOperationService.controlDevice(finalDeviceId, finalAction, finalIndex);
+                synchronized (serialPortService.getSerialLock()) {
+                    deviceOperationService.controlDevice(finalDeviceId, finalAction, finalIndex);
+                }
 
                 if ("on".equalsIgnoreCase(finalAction)
                         && duration != null
@@ -121,7 +123,9 @@ public class AutoControlServiceImpl implements AutoControlService {
                         try {
                             Thread.sleep(duration * 1000L);
                             log.info("[自动调节] 策略[ID={}] 设备 {} 到达自动关闭时间，执行关闭", strategyId, finalDeviceId);
-                            deviceOperationService.controlDevice(finalDeviceId, "off", finalIndex);
+                            synchronized (serialPortService.getSerialLock()) {
+                                deviceOperationService.controlDevice(finalDeviceId, "off", finalIndex);
+                            }
                             lastOffTimeMap.put(finalDeviceId, System.currentTimeMillis());
                             lastTriggerMap.put(finalDeviceId, false);
                         } catch (InterruptedException ignored) {}
