@@ -45,7 +45,6 @@ public class AutoControlServiceImpl implements AutoControlService {
      */
     @Override
     public void checkAndExecuteStrategy(Map<String, Object> parsedData) {
-        log.info("进入checkAndExecuteStrategy方法，收到数据: {}", parsedData);
         List<AgricultureAutoControlStrategy> strategies = strategyService.getAllActiveStrategies();
         log.info("[自动调节] 共检测到 {} 条启用的自动调节策略", strategies.size());
 
@@ -122,12 +121,13 @@ public class AutoControlServiceImpl implements AutoControlService {
                     new Thread(() -> {
                         try {
                             Thread.sleep(duration * 1000L);
-                            log.info("[自动调节] 策略[ID={}] 设备 {} 到达自动关闭时间，执行关闭", strategyId, finalDeviceId);
-                            synchronized (serialPortService.getSerialLock()) {
+                            log.info("[自动调节] 策略[ID={}] 设备 {} 到达自动关闭时间，异步提交关闭任务", strategyId, finalDeviceId);
+                            //异步关闭 关闭任务
+                            serialCommandExecutor.submit(() -> {
                                 deviceOperationService.controlDevice(finalDeviceId, "off", finalIndex);
-                            }
-                            lastOffTimeMap.put(finalDeviceId, System.currentTimeMillis());
-                            lastTriggerMap.put(finalDeviceId, false);
+                                lastOffTimeMap.put(finalDeviceId, System.currentTimeMillis());
+                                lastTriggerMap.put(finalDeviceId, false);
+                            });
                         } catch (InterruptedException ignored) {}
                     }).start();
                 }

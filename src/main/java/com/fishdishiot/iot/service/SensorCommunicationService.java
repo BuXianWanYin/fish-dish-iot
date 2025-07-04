@@ -17,6 +17,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 传感器通信服务
@@ -47,15 +49,6 @@ public class SensorCommunicationService {
     @Autowired
     private SerialCommandExecutor serialCommandExecutor; // 注入 SerialCommandExecutor
 
-    // 线程池
-    private ExecutorService executorService;
-    
-    // 使用ConcurrentHashMap存储每个传感器正在运行的轮询任务（Future对象）
-    private final Map<Long, Future<?>> runningTasks = new ConcurrentHashMap<>();
-    
-    // 串口访问锁对象。加锁保证同一时间只有一个线程在进行读写操作，防止数据错乱。
-    private final Object serialLock = new Object();
-
     /**
      * 确保此方法在SensorCommunicationService的Bean初始化后立即执行。
      * 初始化线程池。
@@ -63,8 +56,6 @@ public class SensorCommunicationService {
     @PostConstruct
     public void init() {
         log.info("正在初始化传感器通信服务...");
-        // 使用缓存线程池
-        executorService = Executors.newCachedThreadPool();
     }
 
     /**
@@ -84,20 +75,6 @@ public class SensorCommunicationService {
     @PreDestroy
     public void destroy() {
         log.info("正在关闭传感器通信服务...");
-        stopAllSensorTasks(); // 先停止所有正在运行的任务
-        if (executorService != null && !executorService.isShutdown()) {
-            executorService.shutdown(); // 发起关闭命令，不再接受新任务，等待现有任务执行完毕
-            try {
-                // 等待5秒，如果线程池还未完全关闭，则强制关闭
-                if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
-                    executorService.shutdownNow(); // 立即尝试停止所有正在执行的任务
-                }
-            } catch (InterruptedException e) {
-                // 如果当前线程在等待时被中断，也立即强制关闭
-                executorService.shutdownNow();
-                Thread.currentThread().interrupt(); // 重新设置中断状态
-            }
-        }
     }
 
     /**
@@ -122,7 +99,7 @@ public class SensorCommunicationService {
                     continue;
                 }
                 // 启动任务
-                startSensorTask(sensor);
+                startSensorCollectLoop(sensor);
             }
         } catch (Exception e) {
             log.error("启动传感器通信流程失败", e);
@@ -141,91 +118,49 @@ public class SensorCommunicationService {
     }
 
     /**
-     * 为单个传感器设备启动一个独立的后台轮询任务。
-     * @param sensor 需要启动任务的传感器设备对象
+     * 启动单个传感器的采集循环（通过全局队列串行化）。
      */
-    private void startSensorTask(AgricultureDevice sensor) {
-        // 防止重复启动任务
-        if (runningTasks.containsKey(sensor.getId())) {
-            log.warn("传感器 {} (ID: {}) 的任务已在运行中，无需重复启动。", sensor.getDeviceName(), sensor.getId());
-            return;
-        }
-
-        // 向线程池提交一个新任务，并获取其Future对象
-        Future<?> task = executorService.submit(() -> {
-            sensorRequest(sensor);
-        });
-        
-        // 将任务的Future对象存入Map中
-        runningTasks.put(sensor.getId(), task);
-        log.info("已为传感器 {} (ID: {}) 成功启动轮询任务。", sensor.getDeviceName(), sensor.getId());
-    }
-
-    /**
-     * 停止所有正在运行的传感器轮询任务。
-     * 通常在程序关闭或重新加载配置时调用。
-     */
-    private void stopAllSensorTasks() {
-        log.info("正在尝试停止所有 {} 个传感器任务...", runningTasks.size());
-        for (Map.Entry<Long, Future<?>> entry : runningTasks.entrySet()) {
-            Future<?> task = entry.getValue();
-            if (!task.isDone()) {
-                // true表示即使任务正在运行，也尝试中断它
-                task.cancel(true);
-            }
-        }
-        runningTasks.clear(); // 清空任务列表
-        log.info("已发送停止指令给所有传感器任务。");
-    }
-
-    /**
-     * 单个传感器的请求任务核心逻辑，无限循环中执行。
-     * 该方法在一个独立的线程中运行。
-     * @param sensor 当前线程负责轮询的传感器设备
-     */
-    private void sensorRequest(AgricultureDevice sensor) {
-        String sensorName = sensor.getDeviceName();
-        String commandHexStr = sensor.getSensorCommand();
-        Long sensorId = sensor.getId();
-        
-        log.info("线程 {} 正在启动，负责轮询传感器: {} (ID: {})", Thread.currentThread().getName(), sensorName, sensorId);
-        
-        // 使用 while(!Thread.currentThread().isInterrupted()) 作为循环条件，可以优雅地响应中断信号
-        while (!Thread.currentThread().isInterrupted()) {
-            try {
-                serialCommandExecutor.submit(() -> {
-                    synchronized (serialPortService.getSerialLock()) {
-                        try {
-                            byte[] commandBytes = hexStringToByteArray(commandHexStr);
-                            serialPortService.writeToSerial(commandBytes);
-                            Thread.sleep(200);
-                            byte[] response = serialPortService.readFromSerial(256);
-                            if (response != null && response.length > 0) {
-                                deviceStatusService.updateDeviceOnline(sensor.getId().toString());
-                                String deviceType = sensor.getDeviceTypeId();
-                                Map<String, Object> parsedData = parseSensorData(response, deviceType);
-                                parsedData.put("deviceId", sensorId);
-                                parsedData.put("deviceName", sensorName);
-                                parsedData.put("type", getDataTypeByDeviceType(deviceType));
-                                parsedData.put("pastureId", sensor.getPastureId());
-                                parsedData.put("batchId", sensor.getBatchId());
-                                log.info("成功接收并解析来自 {} (ID: {}) 的数据: {}", sensorName, sensorId, parsedData);
-                                dataProcessingService.processAndStore(parsedData);
-                            } else {
-                                log.warn("轮询 {} (ID: {}) 未收到响应。", sensorName, sensorId);
+    private void startSensorCollectLoop(AgricultureDevice sensor) {
+        new Thread(() -> {
+            String sensorName = sensor.getDeviceName();
+            String commandHexStr = sensor.getSensorCommand();
+            Long sensorId = sensor.getId();
+            log.info("线程 {} 正在启动，负责轮询传感器: {} (ID: {})", Thread.currentThread().getName(), sensorName, sensorId);
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    serialCommandExecutor.submit(() -> {
+                        synchronized (serialPortService.getSerialLock()) {
+                            try {
+                                byte[] commandBytes = hexStringToByteArray(commandHexStr);
+                                serialPortService.writeToSerial(commandBytes);
+                                Thread.sleep(200);
+                                byte[] response = serialPortService.readFromSerial(256);
+                                if (response != null && response.length > 0) {
+                                    deviceStatusService.updateDeviceOnline(sensor.getId().toString());
+                                    String deviceType = sensor.getDeviceTypeId();
+                                    Map<String, Object> parsedData = parseSensorData(response, deviceType);
+                                    parsedData.put("deviceId", sensorId);
+                                    parsedData.put("deviceName", sensorName);
+                                    parsedData.put("type", getDataTypeByDeviceType(deviceType));
+                                    parsedData.put("pastureId", sensor.getPastureId());
+                                    parsedData.put("batchId", sensor.getBatchId());
+                                    log.info("成功接收并解析来自 {} (ID: {}) 的数据: {}", sensorName, sensorId, parsedData);
+                                    dataProcessingService.processAndStore(parsedData);
+                                } else {
+                                    log.warn("轮询 {} (ID: {}) 未收到响应。", sensorName, sensorId);
+                                }
+                            } catch (Exception e) {
+                                log.error("采集任务异常: {}", e.getMessage(), e);
                             }
-                        } catch (Exception e) {
-                            log.error("采集任务异常: {}", e.getMessage(), e);
                         }
-                    }
-                });
-                Thread.sleep(5000); // 轮询间隔
-            } catch (InterruptedException e) {
-                break;
+                    });
+                    Thread.sleep(5000); // 轮询间隔
+                } catch (InterruptedException e) {
+                    break;
+                }
             }
-        }
-        
-        log.info("传感器 {} (ID: {}) 的轮询任务已完全停止。", sensorName, sensorId);
+            log.info("传感器 {} (ID: {}) 的轮询任务已完全停止。", sensorName, sensorId);
+        }, "Sensor-Collect-" + sensor.getId()).start();
     }
 
     /**
@@ -467,7 +402,7 @@ public class SensorCommunicationService {
      */
     public void reloadSensorConfig() {
         log.info("正在重新加载传感器配置...");
-        stopAllSensorTasks();
+        // stopAllSensorTasks(); // 移除
         startSensorCommunication();
     }
 
@@ -476,13 +411,6 @@ public class SensorCommunicationService {
      * @return 一个Map，Key是设备ID，Value是任务状态（"RUNNING" 或 "STOPPED"）。
      */
     public Map<String, String> getSensorTaskStatus() {
-        Map<String, String> status = new HashMap<>();
-        for (Map.Entry<Long, Future<?>> entry : runningTasks.entrySet()) {
-            Long deviceId = entry.getKey();
-            Future<?> task = entry.getValue();
-            String taskStatus = task.isDone() ? "STOPPED" : "RUNNING";
-            status.put(deviceId.toString(), taskStatus);
-        }
-        return status;
+        return new HashMap<>();
     }
 } 

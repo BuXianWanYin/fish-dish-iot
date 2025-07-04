@@ -1,6 +1,7 @@
 package com.fishdishiot.iot.service;
 
 import com.fazecast.jSerialComm.SerialPort;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +17,9 @@ import java.util.stream.Collectors;
 public class SerialPortService {
 
     private static final Logger log = LoggerFactory.getLogger(SerialPortService.class);
+
+    // 串口锁对象的getter方法
+    @Getter
     private final Object serialLock = new Object(); // 串口全局锁
     @Value("${serial.port-name}")
     private String portName;
@@ -68,9 +72,15 @@ public class SerialPortService {
      */
     public int writeToSerial(byte[] data) {
         synchronized (serialLock) {
+            log.info("[串口写入] 开始，线程: {}，时间: {}，数据长度: {}", Thread.currentThread().getName(), java.time.LocalDateTime.now(), data != null ? data.length : 0);
             if (commPort != null && commPort.isOpen()) {
                 int bytesWritten = commPort.writeBytes(data, data.length);
-                log.debug("向串口写入 {} 字节", bytesWritten);
+                // 清空缓冲区
+                int avail = commPort.bytesAvailable();
+                if (avail > 0) {
+                    commPort.readBytes(new byte[avail], avail);
+                }
+                log.info("[串口写入] 结束，线程: {}，时间: {}，写入字节: {}", Thread.currentThread().getName(), java.time.LocalDateTime.now(), bytesWritten);
                 return bytesWritten;
             } else {
                 log.error("串口未打开");
@@ -86,18 +96,25 @@ public class SerialPortService {
      */
     public byte[] readFromSerial(int maxBytes) {
         synchronized (serialLock) {
+            log.info("[串口读取] 开始，线程: {}，时间: {}，最大字节: {}", Thread.currentThread().getName(), java.time.LocalDateTime.now(), maxBytes);
             if (commPort != null && commPort.isOpen()) {
                 byte[] data = new byte[maxBytes];
                 int bytesRead = commPort.readBytes(data, Math.min(maxBytes, commPort.bytesAvailable()));
                 if (bytesRead > 0) {
                     byte[] result = new byte[bytesRead];
                     System.arraycopy(data, 0, result, 0, bytesRead);
+                    // 清空缓冲区
+                    int avail = commPort.bytesAvailable();
+                    if (avail > 0) {
+                        commPort.readBytes(new byte[avail], avail);
+                    }
                     log.debug("从串口读取 {} 字节", bytesRead);
                     return result;
                 }
             } else {
                 log.error("串口未打开");
             }
+            log.info("[串口读取] 结束，线程: {}，时间: {}，读取字节: 0", Thread.currentThread().getName(), java.time.LocalDateTime.now());
             return new byte[0];
         }
     }
@@ -137,8 +154,4 @@ public class SerialPortService {
         return data;
     }
 
-    // 提供串口锁对象的getter方法
-    public Object getSerialLock() {
-        return serialLock;
-    }
-} 
+}
